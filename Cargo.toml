@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-expander_compiler = { git = "https://github.com/PolyhedraZK/ExpanderCompilerCollection", branch = "efc_hints"}
-circuit-std-rs = { git = "https://github.com/PolyhedraZK/ExpanderCompilerCollection", branch = "efc_hints"}
+expander_compiler = { git = "https://github.com/PolyhedraZK/ExpanderCompilerCollection", branch = "efc_hashtocurve"}
+circuit-std-rs = { git = "https://github.com/PolyhedraZK/ExpanderCompilerCollection", branch = "efc_hashtocurve"}
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
