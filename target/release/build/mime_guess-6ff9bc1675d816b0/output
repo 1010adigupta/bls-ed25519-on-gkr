@@ -1,1 +1,0 @@
-cargo:rustc-env=MIME_TYPES_GENERATED_PATH=/Users/adityagupta/Code/Twine/bls-ed25519-on-gkr/target/release/build/mime_guess-6ff9bc1675d816b0/out/mime_types_generated.rs
