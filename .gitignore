@@ -1,0 +1,15 @@
+# Rust
+/target/
+Cargo.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Generated files
+*.txt
+proof.txt
+witness.txt
+circuit.txt
+witness_time.txt
