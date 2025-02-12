@@ -1,5 +1,5 @@
 #!/bin/bash
-
+echo "Starting benchmarking..."
 # Build the project in release mode first
 cargo build --release
 
