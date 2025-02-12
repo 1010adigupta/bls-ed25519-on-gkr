@@ -1,0 +1,11 @@
+prefix=/Users/adityagupta/Code/Twine/bls-ed25519-on-gkr/target/release/build/libffi-sys-f4330a584d00a204/out/libffi-root
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+toolexeclibdir=${libdir}
+includedir=${prefix}/include
+
+Name: libffi
+Description: Library supporting Foreign Function Interfaces
+Version: 3.4.4
+Libs: -L${toolexeclibdir} -lffi
+Cflags: -I${includedir}
