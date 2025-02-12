@@ -209,6 +209,7 @@ fn compile_and_save_circuit() {
 }
 
 fn main() {
+    compile_and_save_circuit();
     let mut hint_registry = HintRegistry::<M31>::new();
     register_hint(&mut hint_registry);
 
