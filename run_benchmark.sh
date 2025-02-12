@@ -1,26 +1,21 @@
 #!/bin/bash
-echo "Starting benchmarking..."
+echo "Starting benchmarks..."
 # Build the project in release mode first
 cargo build --release
 
 echo "Running witness generation..."
-# Run the main program and capture witness generation time
-WITNESS_TIME=$(cargo run --release | grep "WITNESS_TIME:" | cut -d' ' -f2)
+# Run the main program
+cargo run --release
+WITNESS_TIME=$(cat witness_time.txt)
 
 cd Expander
 echo "Running prover..."
-# Measure proving time
-PROVE_START=$(date +%s%N)
-cargo run --bin expander-exec --release -- prove ../circuit.txt ../witness.txt ../proof.txt
-PROVE_END=$(date +%s%N)
-PROVE_TIME=$((($PROVE_END - $PROVE_START)/1000000)) # Convert to milliseconds
+# Measure proving time using time command
+PROVE_TIME=$( { time cargo run --bin expander-exec --release -- prove ../circuit.txt ../witness.txt ../proof.txt ; } 2>&1 | grep real | awk '{print $2}' | sed 's/0m\([0-9.]*\)s/\1/' | awk '{printf "%.0f\n", $1 * 1000}' )
 
 echo "Running verifier..."
-# Measure verification time
-VERIFY_START=$(date +%s%N)
-cargo run --bin expander-exec --release -- ../circuit.txt ../witness.txt ../proof.txt
-VERIFY_END=$(date +%s%N)
-VERIFY_TIME=$((($VERIFY_END - $VERIFY_START)/1000000)) # Convert to milliseconds
+# Measure verification time using time command
+VERIFY_TIME=$( { time cargo run --bin expander-exec --release -- ../circuit.txt ../witness.txt ../proof.txt ; } 2>&1 | grep real | awk '{print $2}' | sed 's/0m\([0-9.]*\)s/\1/' | awk '{printf "%.0f\n", $1 * 1000}' )
 
 # Print results
 echo "----------------------------------------"
@@ -30,3 +25,6 @@ echo "Witness Generation Time: $WITNESS_TIME ms"
 echo "Proving Time: $PROVE_TIME ms"
 echo "Verification Time: $VERIFY_TIME ms"
 echo "----------------------------------------"
+
+# Clean up timing file
+rm witness_time.txt

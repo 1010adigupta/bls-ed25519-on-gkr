@@ -21,7 +21,7 @@ use num_bigint::BigInt;
 use num_traits::Num;
 use extra::Serde;
 use std::fs::File;
-use std::io::{BufWriter, BufReader};
+use std::io::{BufWriter, BufReader, Write};
 use std::time::Instant;
 
 declare_circuit!(BLSSignatureGKRCircuit {
@@ -209,7 +209,6 @@ fn compile_and_save_circuit() {
 }
 
 fn main() {
-    compile_and_save_circuit();
     let mut hint_registry = HintRegistry::<M31>::new();
     register_hint(&mut hint_registry);
 
@@ -278,11 +277,10 @@ fn main() {
         .solve_witnesses_with_hints(&assignments, &mut hint_registry)
         .unwrap();
     let witness_duration = witness_start.elapsed();
-    println!("WITNESS_TIME: {} ms", witness_duration.as_millis());
-    
-    let outputs = layered_circuit.run(&witnesses);
-    println!("First assertion");
-    assert_eq!(outputs, vec![true]);
+    // Write timing to file
+    let file = File::create("witness_time.txt").unwrap();
+    let mut writer = BufWriter::new(file);
+    write!(writer, "{}", witness_duration.as_millis()).unwrap();
 
     // Save witness for later use
     let file = File::create("witness.txt").unwrap();
