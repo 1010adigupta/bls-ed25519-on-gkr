@@ -8,6 +8,7 @@ echo "Running witness generation..."
 cargo run --release
 WITNESS_TIME=$(cat witness_time.txt)
 
+cd ..
 cd Expander
 echo "Running prover..."
 # Measure proving time using time command
@@ -25,6 +26,3 @@ echo "Witness Generation Time: $WITNESS_TIME ms"
 echo "Proving Time: $PROVE_TIME ms"
 echo "Verification Time: $VERIFY_TIME ms"
 echo "----------------------------------------"
-
-# Clean up timing file
-rm witness_time.txt
