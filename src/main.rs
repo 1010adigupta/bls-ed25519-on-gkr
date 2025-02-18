@@ -375,7 +375,7 @@ fn main() {
     let assignments = vec![assignment.clone(); 64];
     println!("Assignment finished....");
 
-    println!("Beginning witness generation....")
+    println!("Beginning witness generation....");
     let witness_start = Instant::now();
     let witnesses = compile_result.witness_solver
         .solve_witnesses_with_hints(&assignments, &mut hint_registry)
