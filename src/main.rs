@@ -301,15 +301,7 @@ fn compile_and_save_circuit() {
 }
 
 fn main() {
-    compile_and_save_circuit();
-    // Load the pre-compiled circuit and witness solver
-    let file = File::open("circuit.txt").unwrap();
-    let reader = BufReader::new(file);
-    let layered_circuit = Circuit::<M31Config, NormalInputType>::deserialize_from(reader).unwrap();
-
-    let file = File::open("witness_solver.txt").unwrap();
-    let reader = BufReader::new(file);
-    let witness_solver = WitnessSolver::<M31Config>::deserialize_from(reader).unwrap();
+    let compile_result = compile_generic(&BLSSignatureGKRCircuit::default(), CompileOptions::default()).unwrap();
 
     let mut hint_registry = HintRegistry::<M31>::new();
     register_hint(&mut hint_registry);
@@ -377,23 +369,28 @@ fn main() {
         assignment.msg[i] = M31::from(msg_bytes.1[i] as u32);
     }
 
+    let assignments = vec![assignment.clone(); 64];
     println!("Assignment completed");
 
-    let assignments = vec![assignment.clone(); 16];
-
-    // Measure witness generation time
     let witness_start = Instant::now();
-    let witnesses = witness_solver
+    let witnesses = compile_result.witness_solver
         .solve_witnesses_with_hints(&assignments, &mut hint_registry)
         .unwrap();
     let witness_duration = witness_start.elapsed();
-    // Write timing to file
+    
     let file = File::create("witness_time.txt").unwrap();
     let mut writer = BufWriter::new(file);
     write!(writer, "{}", witness_duration.as_millis()).unwrap();
 
-    // Save witness for later use
+    let file = File::create("circuit.txt").unwrap();
+    let writer = BufWriter::new(file);
+    compile_result.layered_circuit.serialize_into(writer).unwrap();
+
     let file = File::create("witness.txt").unwrap();
     let writer = BufWriter::new(file);
     witnesses.serialize_into(writer).unwrap();
+
+    let file = File::create("witness_solver.txt").unwrap();
+    let writer = BufWriter::new(file);
+    compile_result.witness_solver.serialize_into(writer).unwrap();
 }
