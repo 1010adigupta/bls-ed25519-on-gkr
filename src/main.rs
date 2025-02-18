@@ -301,8 +301,11 @@ fn compile_and_save_circuit() {
 }
 
 fn main() {
+    println!("Beginning compilation....");
     let compile_result = compile_generic(&BLSSignatureGKRCircuit::default(), CompileOptions::default()).unwrap();
+    println!("Compilation finished....");
 
+    println!("Beginning assignment....");
     let mut hint_registry = HintRegistry::<M31>::new();
     register_hint(&mut hint_registry);
     let mut assignment = BLSSignatureGKRCircuit::<M31> {
@@ -370,14 +373,17 @@ fn main() {
     }
 
     let assignments = vec![assignment.clone(); 64];
-    println!("Assignment completed");
+    println!("Assignment finished....");
 
+    println!("Beginning witness generation....")
     let witness_start = Instant::now();
     let witnesses = compile_result.witness_solver
         .solve_witnesses_with_hints(&assignments, &mut hint_registry)
         .unwrap();
     let witness_duration = witness_start.elapsed();
-    
+    println!("Witness generation finished....");
+    println!("Witness generation time: {:?}", witness_duration);
+
     let file = File::create("witness_time.txt").unwrap();
     let mut writer = BufWriter::new(file);
     write!(writer, "{}", witness_duration.as_millis()).unwrap();
