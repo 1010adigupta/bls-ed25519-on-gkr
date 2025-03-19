@@ -6,5 +6,18 @@ edition = "2021"
 [dependencies]
 expander_compiler = { path = "../ExpanderCompilerCollection/expander_compiler" }
 circuit-std-rs = { path = "../ExpanderCompilerCollection/circuit-std-rs" }
+gkr = {git = "https://github.com/PolyhedraZK/Expander.git"}
+circuit = {git = "https://github.com/PolyhedraZK/Expander.git"}
+config = {git = "https://github.com/PolyhedraZK/Expander.git"}
+gkr_field_config = {git = "https://github.com/PolyhedraZK/Expander.git"}
+arith = {git = "https://github.com/PolyhedraZK/Expander.git"}
+mpi_config = {git = "https://github.com/PolyhedraZK/Expander.git"}
+config_macros = {git = "https://github.com/PolyhedraZK/Expander.git"}
+poly_commit = {git = "https://github.com/PolyhedraZK/Expander.git"}
+transcript = {git = "https://github.com/PolyhedraZK/Expander.git"}
+serdes = {git = "https://github.com/PolyhedraZK/Expander.git"}
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+sha2 = "0.10.8"

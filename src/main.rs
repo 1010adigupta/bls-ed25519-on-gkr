@@ -5,19 +5,27 @@ use circuit_std_rs::{
     utils::register_hint,
 };
 use expander_compiler::{
-    circuit::layered::Circuit,
     compile::CompileOptions,
-    frontend::{extra::debug_eval, GenericDefine, HintRegistry, M31Config, RootAPI, Variable, M31},
+    frontend::{GenericDefine, HintRegistry, M31Config, RootAPI, Variable, M31},
 };
-use expander_compiler::{circuit::layered::NormalInputType, declare_circuit, frontend::*};
+use gkr::{Prover, Verifier};
+use config::{Config, FiatShamirHashType, GKRConfig, GKRScheme, PolynomialCommitmentType};
+use expander_compiler::{declare_circuit, frontend::*};
 use extra::Serde;
 use num_bigint::BigInt;
 use num_traits::Num;
-use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
-use std::sync::Arc;
-use std::thread;
-use std::time::Instant;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha12Rng;
+use sha2::Digest;
+use std::{fs, panic::{self, AssertUnwindSafe}, fs::File, io::{BufWriter, Write}, sync::Arc, thread, time::Instant};
+use circuit::Circuit as GKRCircuit;
+use gkr_field_config::{GKRFieldConfig, M31ExtConfig};
+use mpi_config::{root_println, MPIConfig};
+use arith::Field;
+use config_macros::declare_gkr_config;
+use poly_commit::{expander_pcs_init_testing_only, RawExpanderGKR};
+use transcript::{BytesHashTranscript, Keccak256hasher};
+use serdes::ExpSerde;
 
 declare_circuit!(BLSSignatureGKRCircuit {
     g1_gen: [[Variable; 48]; 2],
@@ -71,22 +79,22 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
         };
 
         for i in 1..512 {
-            let pk = G1Affine {
+            let _pk = G1Affine {
                 x: Element::new(
                     self.pub_keys[i][0].to_vec(),
                     0,
-                    false,
-                    false,
-                    false,
-                    Variable::default(),
+                false,
+                false,
+                false,
+                Variable::default(),
                 ),
                 y: Element::new(
                     self.pub_keys[i][1].to_vec(),
                     0,
-                    false,
-                    false,
-                    false,
-                    Variable::default(),
+                false,
+                false,
+                false,
+                Variable::default(),
                 ),
             };
 
@@ -99,36 +107,36 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
                 a0: Element::new(
                     self.sigs[0][0][0].to_vec(),
                     0,
-                    false,
-                    false,
-                    false,
-                    Variable::default(),
+                false,
+                false,
+                false,
+                Variable::default(),
                 ),
                 a1: Element::new(
                     self.sigs[0][0][1].to_vec(),
                     0,
-                    false,
-                    false,
-                    false,
-                    Variable::default(),
+                false,
+                false,
+                false,
+                Variable::default(),
                 ),
             },
             y: GE2 {
                 a0: Element::new(
                     self.sigs[0][1][0].to_vec(),
                     0,
-                    false,
-                    false,
-                    false,
-                    Variable::default(),
+                false,
+                false,
+                false,
+                Variable::default(),
                 ),
                 a1: Element::new(
                     self.sigs[0][1][1].to_vec(),
                     0,
-                    false,
-                    false,
-                    false,
-                    Variable::default(),
+                false,
+                false,
+                false,
+                Variable::default(),
                 ),
             },
         };
@@ -136,42 +144,42 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
         let mut g2 = G2::new(builder);
 
         for i in 1..512 {
-            let sig = G2AffP {
+            let _sig = G2AffP {
                 x: GE2 {
                     a0: Element::new(
                         self.sigs[i][0][0].to_vec(),
                         0,
-                        false,
-                        false,
-                        false,
-                        Variable::default(),
-                    ),
+                false,
+                false,
+                false,
+                Variable::default(),
+                ),
                     a1: Element::new(
                         self.sigs[i][0][1].to_vec(),
                         0,
-                        false,
-                        false,
-                        false,
-                        Variable::default(),
-                    ),
+                false,
+                false,
+                false,
+                Variable::default(),
+                ),
                 },
                 y: GE2 {
                     a0: Element::new(
                         self.sigs[i][1][0].to_vec(),
                         0,
-                        false,
-                        false,
-                        false,
-                        Variable::default(),
-                    ),
+                false,
+                false,
+                false,
+                Variable::default(),
+                ),
                     a1: Element::new(
                         self.sigs[i][1][1].to_vec(),
                         0,
-                        false,
-                        false,
-                        false,
-                        Variable::default(),
-                    ),
+                false,
+                false,
+                false,
+                Variable::default(),
+                ),
                 },
             };
             // Since all signatures are the same in this test, we need to double
@@ -422,15 +430,45 @@ fn main() {
     );
     println!("Witness generation finished....");
 
-    let file = File::create("witness_time.txt").unwrap();
-    let mut writer = BufWriter::new(file);
+    let _file = File::create("witness_time.txt").unwrap();
+    let _writer = BufWriter::new(_file);
 
-    let file = File::create("circuit.txt").unwrap();
+    let circuit_path = "circuit.txt";
+    let file = File::create(circuit_path).unwrap();
     let writer = BufWriter::new(file);
     compile_result
         .layered_circuit
         .serialize_into(writer)
         .unwrap();
+
+    // Launch a thread for each witness file to run prove_and_verify
+    let assignment_count = assignments.chunks(16).count();
+    println!("Starting proof generation for {} witness files...", assignment_count);
+    
+    let circuit_path_str = circuit_path.to_string();
+    let handles = (0..assignment_count)
+        .map(|i| {
+            let witness_path = format!("witness_{}.txt", i);
+            let proof_path = format!("proof_{}.bin", i);
+            let circuit_path_clone = circuit_path_str.clone();
+            
+            thread::spawn(move || {
+                println!("Starting proof generation for witness file {}", witness_path);
+                prove_and_verify(
+                    &circuit_path_clone,
+                    &witness_path,
+                    Some(&proof_path)
+                );
+                println!("Proof generation completed for witness file {}", witness_path);
+            })
+        })
+        .collect::<Vec<_>>();
+    
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    
+    println!("All proofs generated and verified successfully!");
 
     // let file = File::create("witness.txt").unwrap();
     // let writer = BufWriter::new(file);
@@ -441,4 +479,154 @@ fn main() {
     // compile_result.witness_solver.serialize_into(writer).unwrap();
 }
 
-
+/// Creates a prover and verifier for the BLS signature circuit
+pub fn prove_and_verify(circuit_path: &str, witness_path: &str, write_proof_to: Option<&str>) {
+    let mpi_config = MPIConfig::new();
+    
+    // Define the GKR config for M31 field with Keccak256 hasher and Raw polynomial commitment
+    declare_gkr_config!(
+        BLSConfig,
+        FieldType::M31,
+        FiatShamirHashType::Keccak256,
+        PolynomialCommitmentType::Raw
+    );
+    
+    let config = Config::<BLSConfig>::new(GKRScheme::Vanilla, mpi_config.clone());
+    
+    root_println!(config.mpi_config, "============== BLS Signature GKR Test ===============");
+    root_println!(
+        config.mpi_config,
+        "Field Type: {:?}",
+        <<BLSConfig as GKRConfig>::FieldConfig as GKRFieldConfig>::FIELD_TYPE
+    );
+    
+    // Create and load the BLS signature circuit
+    // Note: In a real implementation, you would need to create these circuit and witness files
+    let mut circuit = GKRCircuit::<<BLSConfig as GKRConfig>::FieldConfig>::load_circuit::<BLSConfig>(circuit_path);
+    root_println!(config.mpi_config, "BLS Signature Circuit loaded.");
+    
+    // Load the witness
+    circuit.load_witness_allow_padding_testing_only(witness_path, &config.mpi_config);
+    root_println!(config.mpi_config, "BLS Signature Witness loaded.");
+    
+    // Evaluate the circuit
+    circuit.evaluate();
+    let output = &circuit.layers.last().unwrap().output_vals;
+    assert!(output[..circuit.expected_num_output_zeros]
+        .iter()
+        .all(|f| f.is_zero()));
+    
+    // Create the prover
+    let mut prover = Prover::new(&config);
+    prover.prepare_mem(&circuit);
+    
+    // Initialize the PCS (Polynomial Commitment Scheme)
+    let mut rng = ChaCha12Rng::seed_from_u64(114514);
+    let (pcs_params, pcs_proving_key, pcs_verification_key, mut pcs_scratch) =
+        expander_pcs_init_testing_only::<<BLSConfig as GKRConfig>::FieldConfig, <BLSConfig as GKRConfig>::Transcript, <BLSConfig as GKRConfig>::PCS>(
+            circuit.log_input_size(),
+            &config.mpi_config,
+            &mut rng,
+        );
+    
+    // Generate the proof
+    let proving_start = Instant::now();
+    let (claimed_v, proof) = prover.prove(
+        &mut circuit,
+        &pcs_params,
+        &pcs_proving_key,
+        &mut pcs_scratch,
+    );
+    root_println!(
+        config.mpi_config,
+        "Proving time: {} μs",
+        proving_start.elapsed().as_micros()
+    );
+    
+    root_println!(
+        config.mpi_config,
+        "Proof generated. Size: {} bytes",
+        proof.bytes.len()
+    );
+    
+    root_println!(config.mpi_config, "Proof hash: ");
+    sha2::Sha256::digest(&proof.bytes)
+        .iter()
+        .for_each(|b| print!("{} ", b));
+    root_println!(config.mpi_config,);
+    
+    // Gather public inputs for verification
+    let mut public_input_gathered = if config.mpi_config.is_root() {
+        vec![
+            <<BLSConfig as GKRConfig>::FieldConfig as GKRFieldConfig>::SimdCircuitField::ZERO;
+            circuit.public_input.len() * config.mpi_config.world_size()
+        ]
+    } else {
+        vec![]
+    };
+    config
+        .mpi_config
+        .gather_vec(&circuit.public_input, &mut public_input_gathered);
+    
+    // Verify the proof
+    if config.mpi_config.is_root() {
+        // Write the proof to a file if requested
+        if let Some(str) = write_proof_to {
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(str)
+                .unwrap();
+            
+            let mut buf = vec![];
+            proof.serialize_into(&mut buf).unwrap();
+            file.write_all(&buf).unwrap();
+        }
+        
+        // Create the verifier and verify the proof
+        let verifier = Verifier::new(&config);
+        println!("Verifier created.");
+        let verification_start = Instant::now();
+        assert!(verifier.verify(
+            &mut circuit,
+            &public_input_gathered,
+            &claimed_v,
+            &pcs_params,
+            &pcs_verification_key,
+            &proof
+        ));
+        println!(
+            "Verification time: {} μs",
+            verification_start.elapsed().as_micros()
+        );
+        println!("Correct proof verified.");
+        
+        // Test that a tampered proof is rejected
+        let mut bad_proof = proof.clone();
+        let rng = &mut rand::thread_rng();
+        let random_idx = rng.gen_range(0..bad_proof.bytes.len());
+        let random_change = rng.gen_range(1..256) as u8;
+        bad_proof.bytes[random_idx] ^= random_change;
+        
+        // Catch the panic and treat it as returning `false`
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            verifier.verify(
+                &mut circuit,
+                &public_input_gathered,
+                &claimed_v,
+                &pcs_params,
+                &pcs_verification_key,
+                &bad_proof,
+            )
+        }));
+        
+        let final_result = result.unwrap_or_default();
+        
+        assert!(!final_result);
+        println!("Bad proof rejected.");
+        println!("============== end ===============");
+    }
+    
+    MPIConfig::finalize();
+}
