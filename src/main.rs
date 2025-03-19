@@ -1,28 +1,23 @@
 mod bls12_381;
 mod bls_signature;
-use std::sync::Arc;
-use std::thread;
+use crate::bls12_381::{g1::*, g2::*, pairing::Pairing};
 use circuit_std_rs::{
-    gnark::{
-        element::Element,
-        emulated::field_bls12381::e2::GE2,
-    },
+    gnark::{element::Element, emulated::field_bls12381::e2::GE2},
     utils::register_hint,
 };
-use crate::bls12_381::{g1::*, g2::*, pairing::Pairing};
 use expander_compiler::{
-    circuit::layered::NormalInputType, declare_circuit, frontend::*
-};
-use expander_compiler::{
+    circuit::layered::Circuit,
     compile::CompileOptions,
     frontend::{extra::debug_eval, GenericDefine, HintRegistry, M31Config, RootAPI, Variable, M31},
-    circuit::layered::Circuit,
 };
+use expander_compiler::{circuit::layered::NormalInputType, declare_circuit, frontend::*};
+use extra::Serde;
 use num_bigint::BigInt;
 use num_traits::Num;
-use extra::Serde;
 use std::fs::File;
-use std::io::{BufWriter, BufReader, Write};
+use std::io::{BufReader, BufWriter, Write};
+use std::sync::Arc;
+use std::thread;
 use std::time::Instant;
 
 declare_circuit!(BLSSignatureGKRCircuit {
@@ -53,10 +48,10 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
                 Variable::default(),
             ),
         };
-        
+
         let mut g1_impl = G1::new(builder);
         let g1_neg = g1_impl.neg(builder, &g1);
-        
+
         let mut agg_pk = G1Affine {
             x: Element::new(
                 self.pub_keys[0][0].to_vec(),
@@ -75,7 +70,7 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
                 Variable::default(),
             ),
         };
-        
+
         for i in 1..512 {
             let pk = G1Affine {
                 x: Element::new(
@@ -95,11 +90,11 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
                     Variable::default(),
                 ),
             };
-            
+
             // Since all public keys are the same in this test, we need to double
             agg_pk = g1_impl.double(builder, &agg_pk);
         }
-        
+
         let mut agg_sig = G2AffP {
             x: GE2 {
                 a0: Element::new(
@@ -138,9 +133,9 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
                 ),
             },
         };
-        
+
         let mut g2 = G2::new(builder);
-        
+
         for i in 1..512 {
             let sig = G2AffP {
                 x: GE2 {
@@ -183,10 +178,10 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
             // Since all signatures are the same in this test, we need to double
             agg_sig = g2.g2_double(builder, &agg_sig);
         }
-        
+
         let (hm0, hm1) = g2.hash_to_fp(builder, &self.msg);
         let msg_g2 = g2.map_to_g2(builder, &hm0, &hm1);
-        
+
         pairing
             .pairing_check(
                 builder,
@@ -203,7 +198,7 @@ impl GenericDefine<M31Config> for BLSSignatureGKRCircuit<Variable> {
                 ],
             )
             .unwrap();
-            
+
         pairing.ext12.ext6.ext2.curve_f.check_mul(builder);
         pairing.ext12.ext6.ext2.curve_f.table.final_check(builder);
         pairing.ext12.ext6.ext2.curve_f.table.final_check(builder);
@@ -273,7 +268,8 @@ fn test_aggregate_pairing_check_gkr() {
     let msg_bigint = BigInt::from_str_radix(
         "5656565656565656565656565656565656565656565656565656565656565656",
         16,
-    ).unwrap();
+    )
+    .unwrap();
     let msg_bytes = msg_bigint.to_bytes_be();
 
     for i in 0..32 {
@@ -289,21 +285,35 @@ fn test_aggregate_pairing_check_gkr() {
 
 fn compile_and_save_circuit() {
     println!("Beginning compilation....");
-    let compile_result = compile_generic(&BLSSignatureGKRCircuit::default(), CompileOptions::default()).unwrap();
-    
+    let compile_result = compile_generic(
+        &BLSSignatureGKRCircuit::default(),
+        CompileOptions::default(),
+    )
+    .unwrap();
+
     // Save compile result components
     let file = File::create("circuit.txt").unwrap();
     let writer = BufWriter::new(file);
-    compile_result.layered_circuit.serialize_into(writer).unwrap();
+    compile_result
+        .layered_circuit
+        .serialize_into(writer)
+        .unwrap();
 
     let file = File::create("witness_solver.txt").unwrap();
     let writer = BufWriter::new(file);
-    compile_result.witness_solver.serialize_into(writer).unwrap();
+    compile_result
+        .witness_solver
+        .serialize_into(writer)
+        .unwrap();
 }
 
 fn main() {
     println!("Beginning compilation....");
-    let compile_result = compile_generic(&BLSSignatureGKRCircuit::default(), CompileOptions::default()).unwrap();
+    let compile_result = compile_generic(
+        &BLSSignatureGKRCircuit::default(),
+        CompileOptions::default(),
+    )
+    .unwrap();
     println!("Compilation finished....");
 
     println!("Beginning assignment....");
@@ -367,7 +377,8 @@ fn main() {
     let msg_bigint = BigInt::from_str_radix(
         "5656565656565656565656565656565656565656565656565656565656565656",
         16,
-    ).unwrap();
+    )
+    .unwrap();
     let msg_bytes = msg_bigint.to_bytes_be();
 
     for i in 0..32 {
@@ -396,9 +407,8 @@ fn main() {
                 let witness = witness_solver
                     .solve_witnesses_with_hints(&assignments, &mut hint_registry1)
                     .unwrap();
-                let file_name = format!("./witnesses/pairing/witness_{}.txt", i);
-                let file = std::fs::File::create(file_name).unwrap();
-                let writer = std::io::BufWriter::new(file);
+                let file = File::create(format!("witness_{}.txt", i)).unwrap();
+                let writer = BufWriter::new(file);
                 witness.serialize_into(writer).unwrap();
             })
         })
@@ -418,7 +428,10 @@ fn main() {
 
     let file = File::create("circuit.txt").unwrap();
     let writer = BufWriter::new(file);
-    compile_result.layered_circuit.serialize_into(writer).unwrap();
+    compile_result
+        .layered_circuit
+        .serialize_into(writer)
+        .unwrap();
 
     // let file = File::create("witness.txt").unwrap();
     // let writer = BufWriter::new(file);
