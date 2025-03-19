@@ -1,6 +1,7 @@
 mod bls12_381;
 mod bls_signature;
-
+use std::sync::Arc;
+use std::thread;
 use circuit_std_rs::{
     gnark::{
         element::Element,
@@ -306,6 +307,7 @@ fn main() {
     println!("Compilation finished....");
 
     println!("Beginning assignment....");
+    let start_time = std::time::Instant::now();
     let mut hint_registry = HintRegistry::<M31>::new();
     register_hint(&mut hint_registry);
     let mut assignment = BLSSignatureGKRCircuit::<M31> {
@@ -371,32 +373,58 @@ fn main() {
     for i in 0..32 {
         assignment.msg[i] = M31::from(msg_bytes.1[i] as u32);
     }
-
-    let assignments = vec![assignment.clone(); 64];
+    let end_time = std::time::Instant::now();
+    println!(
+        "assigned assignments time: {:?}",
+        end_time.duration_since(start_time)
+    );
     println!("Assignment finished....");
+    let assignments = vec![assignment.clone(); 64];
 
     println!("Beginning witness generation....");
-    let witness_start = Instant::now();
-    let witnesses = compile_result.witness_solver
-        .solve_witnesses_with_hints(&assignments, &mut hint_registry)
-        .unwrap();
-    let witness_duration = witness_start.elapsed();
+    let assignment_chunks: Vec<Vec<BLSSignatureGKRCircuit<M31>>> =
+        assignments.chunks(16).map(|x| x.to_vec()).collect();
+    let witness_solver = Arc::new(compile_result.witness_solver);
+    let handles = assignment_chunks
+        .into_iter()
+        .enumerate()
+        .map(|(i, assignments)| {
+            let witness_solver = Arc::clone(&witness_solver);
+            thread::spawn(move || {
+                let mut hint_registry1 = HintRegistry::<M31>::new();
+                register_hint(&mut hint_registry1);
+                let witness = witness_solver
+                    .solve_witnesses_with_hints(&assignments, &mut hint_registry1)
+                    .unwrap();
+                let file_name = format!("./witnesses/pairing/witness_{}.txt", i);
+                let file = std::fs::File::create(file_name).unwrap();
+                let writer = std::io::BufWriter::new(file);
+                witness.serialize_into(writer).unwrap();
+            })
+        })
+        .collect::<Vec<_>>();
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    let end_time = std::time::Instant::now();
+    println!(
+        "Generate pairing witness Time: {:?}",
+        end_time.duration_since(start_time)
+    );
     println!("Witness generation finished....");
-    println!("Witness generation time: {:?}", witness_duration);
 
     let file = File::create("witness_time.txt").unwrap();
     let mut writer = BufWriter::new(file);
-    write!(writer, "{}", witness_duration.as_millis()).unwrap();
 
     let file = File::create("circuit.txt").unwrap();
     let writer = BufWriter::new(file);
     compile_result.layered_circuit.serialize_into(writer).unwrap();
 
-    let file = File::create("witness.txt").unwrap();
-    let writer = BufWriter::new(file);
-    witnesses.serialize_into(writer).unwrap();
+    // let file = File::create("witness.txt").unwrap();
+    // let writer = BufWriter::new(file);
+    // witnesses.serialize_into(writer).unwrap();
 
-    let file = File::create("witness_solver.txt").unwrap();
-    let writer = BufWriter::new(file);
-    compile_result.witness_solver.serialize_into(writer).unwrap();
+    // let file = File::create("witness_solver.txt").unwrap();
+    // let writer = BufWriter::new(file);
+    // compile_result.witness_solver.serialize_into(writer).unwrap();
 }
