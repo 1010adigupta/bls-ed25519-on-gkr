@@ -1,35 +1,15 @@
 #!/bin/bash
 echo "Starting benchmarks..."
 # Build the project in release mode first
-cargo build --release
+RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f" cargo build --release
 
-echo "Running witness generation..."
-# Run the main program
-RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f" cargo run --release
-WITNESS_TIME=$(cat witness_time.txt)
+# Run benchmarks with different numbers of assignments
+for num in 32 64 128 256; do
+  echo "Running benchmark with $num assignments..."
+  RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f" cargo run --release -- $num
+  echo ""
+  echo "Benchmark with $num assignments completed."
+  echo "----------------------------------------"
+done
 
-cd ..
-cd Expander
-
-echo "Running prover..."
-echo "----------------------------------------"
-# Run prover and show output
-time RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f" cargo run --bin expander-exec --release -- prove ../bls-ed25519-on-gkr/circuit.txt ../bls-ed25519-on-gkr/witness.txt ../bls-ed25519-on-gkr/proof.txt
-PROVE_TIME=$?
-echo "----------------------------------------"
-
-echo "Running verifier..."
-echo "----------------------------------------"
-# Run verifier and show output
-time RUSTFLAGS="-C target-cpu=native -C target-feature=+avx512f" cargo run --bin expander-exec --release -- verify ../bls-ed25519-on-gkr/circuit.txt ../bls-ed25519-on-gkr/witness.txt ../bls-ed25519-on-gkr/proof.txt
-VERIFY_TIME=$?
-echo "----------------------------------------"
-
-# Print results
-echo "----------------------------------------"
-echo "Performance Measurements"
-echo "----------------------------------------"
-echo "Witness Generation Time: $WITNESS_TIME ms"
-echo "Proving Exit Code: $PROVE_TIME"
-echo "Verification Exit Code: $VERIFY_TIME"
-echo "----------------------------------------"
+echo "All benchmarks completed."

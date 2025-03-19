@@ -17,7 +17,7 @@ use num_traits::Num;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha12Rng;
 use sha2::Digest;
-use std::{fs, panic::{self, AssertUnwindSafe}, fs::File, io::{BufWriter, Write}, sync::Arc, thread, time::Instant};
+use std::{fs, panic::{self, AssertUnwindSafe}, fs::File, io::{BufWriter, Write}, sync::Arc, thread, time::{Instant, Duration}, env};
 use circuit::Circuit as GKRCircuit;
 use gkr_field_config::{GKRFieldConfig, M31ExtConfig};
 use mpi_config::{root_println, MPIConfig};
@@ -315,6 +315,16 @@ fn compile_and_save_circuit() {
 }
 
 fn main() {
+    // Parse command line arguments to get the number of assignments
+    let args: Vec<String> = env::args().collect();
+    let num_assignments = if args.len() > 1 {
+        args[1].parse::<usize>().unwrap_or(64)
+    } else {
+        64 // Default value if no argument is provided
+    };
+    
+    println!("Running benchmark with {} assignments...", num_assignments);
+    
     println!("Beginning compilation....");
     let compile_result = compile_generic(
         &BLSSignatureGKRCircuit::default(),
@@ -397,9 +407,10 @@ fn main() {
         end_time.duration_since(start_time)
     );
     println!("Assignment finished....");
-    let assignments = vec![assignment.clone(); 64];
+    let assignments = vec![assignment.clone(); num_assignments];
 
     println!("Beginning witness generation....");
+    let witness_gen_start_time = Instant::now();
     let assignment_chunks: Vec<Vec<BLSSignatureGKRCircuit<M31>>> =
         assignments.chunks(16).map(|x| x.to_vec()).collect();
     let witness_solver = Arc::new(compile_result.witness_solver);
@@ -423,10 +434,10 @@ fn main() {
     for handle in handles {
         handle.join().unwrap();
     }
-    let end_time = std::time::Instant::now();
+    let witness_gen_time = witness_gen_start_time.elapsed();
     println!(
         "Generate pairing witness Time: {:?}",
-        end_time.duration_since(start_time)
+        witness_gen_time
     );
     println!("Witness generation finished....");
 
@@ -446,41 +457,71 @@ fn main() {
     println!("Starting proof generation for {} witness files...", assignment_count);
     
     let circuit_path_str = circuit_path.to_string();
+    
+    // Create a channel to collect timing information from threads
+    let (tx, rx) = std::sync::mpsc::channel();
+    
     let handles = (0..assignment_count)
         .map(|i| {
             let witness_path = format!("witness_{}.txt", i);
             let proof_path = format!("proof_{}.bin", i);
             let circuit_path_clone = circuit_path_str.clone();
+            let tx_clone = tx.clone();
             
             thread::spawn(move || {
                 println!("Starting proof generation for witness file {}", witness_path);
-                prove_and_verify(
+                let (proving_time, verification_time) = prove_and_verify(
                     &circuit_path_clone,
                     &witness_path,
                     Some(&proof_path)
                 );
+                tx_clone.send((proving_time, verification_time)).unwrap();
                 println!("Proof generation completed for witness file {}", witness_path);
             })
         })
         .collect::<Vec<_>>();
     
+    // Drop the original sender to ensure the receiver will complete
+    drop(tx);
+    
+    // Collect timing information
+    let mut total_proving_time = Duration::new(0, 0);
+    let mut total_verification_time = Duration::new(0, 0);
+    
+    for (proving_time, verification_time) in rx {
+        total_proving_time += proving_time;
+        total_verification_time += verification_time;
+    }
+    
+    // Wait for all threads to complete
     for handle in handles {
         handle.join().unwrap();
     }
     
-    println!("All proofs generated and verified successfully!");
-
-    // let file = File::create("witness.txt").unwrap();
-    // let writer = BufWriter::new(file);
-    // witnesses.serialize_into(writer).unwrap();
-
-    // let file = File::create("witness_solver.txt").unwrap();
-    // let writer = BufWriter::new(file);
-    // compile_result.witness_solver.serialize_into(writer).unwrap();
+    // Calculate total time
+    let total_time = witness_gen_time + total_proving_time + total_verification_time;
+    
+    // Print benchmark table
+    println!("\n+{:-^60}+", "");
+    println!("|{:^60}|", format!("Benchmark for {} commits", num_assignments));
+    println!("+{:-^15}+{:-^15}+{:-^15}+{:-^15}+", "", "", "", "");
+    println!("|{:^15}|{:^15}|{:^15}|{:^15}|", "Witness Gen", "Proving", "Verification", "Total");
+    println!("|{:^15}|{:^15}|{:^15}|{:^15}|", "(seconds)", "(seconds)", "(seconds)", "(seconds)");
+    println!("+{:-^15}+{:-^15}+{:-^15}+{:-^15}+", "", "", "", "");
+    println!("|{:^15.2}|{:^15.2}|{:^15.2}|{:^15.2}|", 
+        witness_gen_time.as_secs_f64(),
+        total_proving_time.as_secs_f64(),
+        total_verification_time.as_secs_f64(),
+        total_time.as_secs_f64()
+    );
+    println!("+{:-^15}+{:-^15}+{:-^15}+{:-^15}+", "", "", "", "");
+    
+    println!("\nAll proofs generated and verified successfully!");
+    MPIConfig::finalize();
 }
 
 /// Creates a prover and verifier for the BLS signature circuit
-pub fn prove_and_verify(circuit_path: &str, witness_path: &str, write_proof_to: Option<&str>) {
+pub fn prove_and_verify(circuit_path: &str, witness_path: &str, write_proof_to: Option<&str>) -> (Duration, Duration) {
     let mpi_config = MPIConfig::new();
     
     // Define the GKR config for M31 field with Keccak256 hasher and Raw polynomial commitment
@@ -537,10 +578,11 @@ pub fn prove_and_verify(circuit_path: &str, witness_path: &str, write_proof_to: 
         &pcs_proving_key,
         &mut pcs_scratch,
     );
+    let proving_time = proving_start.elapsed();
     root_println!(
         config.mpi_config,
         "Proving time: {} μs",
-        proving_start.elapsed().as_micros()
+        proving_time.as_micros()
     );
     
     root_println!(
@@ -567,6 +609,9 @@ pub fn prove_and_verify(circuit_path: &str, witness_path: &str, write_proof_to: 
     config
         .mpi_config
         .gather_vec(&circuit.public_input, &mut public_input_gathered);
+    
+    // Initialize verification time
+    let mut verification_time = Duration::new(0, 0);
     
     // Verify the proof
     if config.mpi_config.is_root() {
@@ -596,9 +641,10 @@ pub fn prove_and_verify(circuit_path: &str, witness_path: &str, write_proof_to: 
             &pcs_verification_key,
             &proof
         ));
+        verification_time = verification_start.elapsed();
         println!(
             "Verification time: {} μs",
-            verification_start.elapsed().as_micros()
+            verification_time.as_micros()
         );
         println!("Correct proof verified.");
         
@@ -628,5 +674,5 @@ pub fn prove_and_verify(circuit_path: &str, witness_path: &str, write_proof_to: 
         println!("============== end ===============");
     }
     
-    MPIConfig::finalize();
+    (proving_time, verification_time)
 }
