@@ -1,5 +1,4 @@
 mod bls12_381;
-mod bls_signature;
 use crate::bls12_381::{g1::*, g2::*, pairing::Pairing};
 use circuit_std_rs::{
     gnark::{element::Element, emulated::field_bls12381::e2::GE2},
@@ -441,3 +440,5 @@ fn main() {
     // let writer = BufWriter::new(file);
     // compile_result.witness_solver.serialize_into(writer).unwrap();
 }
+
+
