@@ -390,7 +390,7 @@ fn main() {
         end_time.duration_since(start_time)
     );
     println!("Assignment finished....");
-    let assignments = vec![assignment.clone(); 64];
+    let assignments = vec![assignment.clone(); 32];
 
     println!("Beginning witness generation....");
     let assignment_chunks: Vec<Vec<BLSSignatureGKRCircuit<M31>>> =
